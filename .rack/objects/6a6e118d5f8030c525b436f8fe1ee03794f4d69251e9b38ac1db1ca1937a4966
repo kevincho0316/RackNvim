@@ -1,0 +1,217 @@
+local M = {}
+local float = require('rack.ui.float')
+
+local ns = vim.api.nvim_create_namespace('rack_picker')
+
+local function fuzzy_match(str, pattern)
+  if pattern == '' then return true end
+  local si, pi = 1, 1
+  local s, p = str:lower(), pattern:lower()
+  while si <= #s and pi <= #p do
+    if s:sub(si, si) == p:sub(pi, pi) then pi = pi + 1 end
+    si = si + 1
+  end
+  return pi > #p
+end
+
+local function border_pad(border)
+  if border == 'none' or border == '' then return 0 end
+  return 2
+end
+
+local function calc_layout(cfg)
+  local cols  = vim.o.columns
+  local rows  = vim.o.lines
+  local total_w = math.floor(cols * cfg.width)
+  local total_h = math.floor(rows * cfg.height)
+  local sr = math.floor((rows - total_h) / 2)
+  local sc = math.floor((cols - total_w) / 2)
+
+  local bp = border_pad(cfg.border or 'rounded')
+  local preview_w  = math.floor(total_w * cfg.preview_ratio)
+  local left_w     = total_w - preview_w - 1  -- 1-cell gap between panels
+
+  local prompt_content_h  = 1
+  local prompt_total_h    = prompt_content_h + bp   -- visual rows consumed
+  local results_content_h = math.max(1, total_h - prompt_total_h - bp)
+  local preview_content_h = math.max(1, total_h - bp)
+
+  return {
+    border = cfg.border or 'rounded',
+    prompt  = { row = sr,                   col = sc,           w = left_w,    h = prompt_content_h  },
+    results = { row = sr + prompt_total_h,  col = sc,           w = left_w,    h = results_content_h },
+    preview = { row = sr,                   col = sc + left_w + 1, w = preview_w, h = preview_content_h },
+  }
+end
+
+-- Open a 3-pane picker.
+-- opts:
+--   title       string
+--   items       list
+--   format      fn(item) -> string
+--   preview     fn(item, bufnr)   -- may be async; manage modifiable itself for async part
+--   on_select   fn(item)
+--   mappings    { key = fn(item, close_fn) }
+--   ui          ui config table (falls back to config.get().ui)
+function M.open(opts)
+  local cfg = opts.ui or require('rack.config').get().ui
+  local L   = calc_layout(cfg)
+
+  local all_items = opts.items or {}
+  local filtered  = vim.list_extend({}, all_items)
+  local sel_idx   = 1
+  local closed    = false
+
+  local wins    = {}
+  local autocmd_ids = {}
+
+  local prompt_f, results_f, preview_f
+
+  local function cleanup()
+    if closed then return end
+    closed = true
+    for _, id in ipairs(autocmd_ids) do pcall(vim.api.nvim_del_autocmd, id) end
+    autocmd_ids = {}
+    for _, w in ipairs(wins) do
+      if vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
+    end
+    wins = {}
+  end
+
+  local function render_results()
+    if closed or not vim.api.nvim_buf_is_valid(results_f.buf) then return end
+    vim.api.nvim_set_option_value('modifiable', true, { buf = results_f.buf })
+    local lines = {}
+    for i, item in ipairs(filtered) do
+      local prefix = (i == sel_idx) and '> ' or '  '
+      lines[i] = prefix .. (opts.format and opts.format(item) or tostring(item))
+    end
+    vim.api.nvim_buf_set_lines(results_f.buf, 0, -1, false, lines)
+    vim.api.nvim_buf_clear_namespace(results_f.buf, ns, 0, -1)
+    if sel_idx >= 1 and sel_idx <= #filtered then
+      vim.api.nvim_buf_set_extmark(results_f.buf, ns, sel_idx - 1, 0, {
+        line_hl_group = 'RackSelection',
+        priority = 100,
+      })
+    end
+    vim.api.nvim_set_option_value('modifiable', false, { buf = results_f.buf })
+  end
+
+  local function update_preview()
+    if closed or not opts.preview or not vim.api.nvim_buf_is_valid(preview_f.buf) then return end
+    vim.api.nvim_set_option_value('modifiable', true, { buf = preview_f.buf })
+    vim.api.nvim_buf_set_lines(preview_f.buf, 0, -1, false, {})
+    if sel_idx >= 1 and sel_idx <= #filtered then
+      opts.preview(filtered[sel_idx], preview_f.buf)
+    end
+    vim.api.nvim_set_option_value('modifiable', false, { buf = preview_f.buf })
+  end
+
+  local function move_sel(delta)
+    sel_idx = math.max(1, math.min(#filtered, sel_idx + delta))
+    render_results()
+    update_preview()
+  end
+
+  local function do_filter(query)
+    filtered = {}
+    for _, item in ipairs(all_items) do
+      local s = opts.format and opts.format(item) or tostring(item)
+      if fuzzy_match(s, query) then table.insert(filtered, item) end
+    end
+    sel_idx = 1
+    render_results()
+    update_preview()
+  end
+
+  -- ── create windows ──────────────────────────────────────────────────────
+  local whl = 'winhighlight'
+  local hl  = 'Normal:RackNormal,FloatBorder:RackBorder'
+
+  prompt_f = float.open({
+    title    = opts.title or 'Rack',
+    width    = L.prompt.w, height = L.prompt.h,
+    row      = L.prompt.row, col = L.prompt.col,
+    border   = L.border, enter = true,
+    buf_opts = { buftype = 'prompt', filetype = 'rack_prompt' },
+    win_opts = { [whl] = hl },
+  })
+  table.insert(wins, prompt_f.win)
+
+  results_f = float.open({
+    title    = 'Results',
+    width    = L.results.w, height = L.results.h,
+    row      = L.results.row, col = L.results.col,
+    border   = L.border, enter = false,
+    buf_opts = { filetype = 'rack_results' },
+    win_opts = { [whl] = hl },
+  })
+  table.insert(wins, results_f.win)
+
+  preview_f = float.open({
+    title     = 'Preview',
+    width     = L.preview.w, height = L.preview.h,
+    row       = L.preview.row, col = L.preview.col,
+    border    = L.border, enter = false, focusable = false,
+    buf_opts  = { filetype = 'rack_preview' },
+    win_opts  = { [whl] = hl, wrap = false },
+  })
+  table.insert(wins, preview_f.win)
+
+  -- ── prompt setup ────────────────────────────────────────────────────────
+  local prompt_prefix = '> '
+  vim.fn.prompt_setprompt(prompt_f.buf, prompt_prefix)
+  vim.cmd('startinsert')
+
+  -- ── autocmds ────────────────────────────────────────────────────────────
+  table.insert(autocmd_ids, vim.api.nvim_create_autocmd('TextChangedI', {
+    buffer = prompt_f.buf,
+    callback = function()
+      local line  = vim.api.nvim_buf_get_lines(prompt_f.buf, 0, 1, false)[1] or ''
+      local query = line:sub(#prompt_prefix + 1)
+      do_filter(query)
+    end,
+  }))
+
+  -- Close if user somehow leaves the prompt buffer
+  table.insert(autocmd_ids, vim.api.nvim_create_autocmd('BufLeave', {
+    buffer = prompt_f.buf,
+    once   = true,
+    callback = function() vim.schedule(cleanup) end,
+  }))
+
+  -- ── keymaps ─────────────────────────────────────────────────────────────
+  local map = function(modes, key, fn)
+    vim.keymap.set(modes, key, fn, { buffer = prompt_f.buf, nowait = true, silent = true })
+  end
+
+  map({ 'i', 'n' }, '<C-n>', function() move_sel(1) end)
+  map({ 'i', 'n' }, '<C-p>', function() move_sel(-1) end)
+  map({ 'i', 'n' }, '<Esc>', cleanup)
+
+  map({ 'i', 'n' }, '<CR>', function()
+    if sel_idx >= 1 and sel_idx <= #filtered then
+      local item = filtered[sel_idx]
+      cleanup()
+      vim.schedule(function()
+        if opts.on_select then opts.on_select(item) end
+      end)
+    end
+  end)
+
+  for key, fn in pairs(opts.mappings or {}) do
+    map({ 'i', 'n' }, key, function()
+      if sel_idx >= 1 and sel_idx <= #filtered then
+        fn(filtered[sel_idx], cleanup)
+      end
+    end)
+  end
+
+  -- ── initial render ───────────────────────────────────────────────────────
+  render_results()
+  update_preview()
+
+  return { cleanup = cleanup }
+end
+
+return M

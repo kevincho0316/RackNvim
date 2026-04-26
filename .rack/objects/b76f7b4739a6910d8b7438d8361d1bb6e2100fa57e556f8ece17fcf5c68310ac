@@ -1,0 +1,208 @@
+# rack.nvim
+
+Neovim plugin for [Rack](../Rack/README.md) — a git-like version control system built around content-addressable storage. Zero dependencies beyond Neovim 0.10+.
+
+## Features
+
+- Telescope-style 3-pane picker (prompt / results / preview) built from scratch with `nvim_open_win`
+- Plate history browser with restore
+- File browser with live preview
+- Project switcher
+- Floating commit, push, pull, status, domain, reconstruct
+- Auto-push timer via `vim.uv`
+
+## Requirements
+
+- Neovim 0.10+
+- `rack` binary on `$PATH` (or configured via `rack_cmd`)
+
+## Installation
+
+**lazy.nvim**
+```lua
+{
+  dir = '~/project/rack.nvim',
+  config = function()
+    require('rack').setup()
+  end,
+}
+```
+
+With keymaps:
+```lua
+{
+  dir = '~/project/rack.nvim',
+  config = function()
+    require('rack').setup({
+      keymaps = {
+        ['<leader>rc'] = function() require('rack').commit_quick() end,
+        ['<leader>rC'] = function() require('rack').commit_named() end,
+        ['<leader>rl'] = function() require('rack').log() end,
+        ['<leader>rf'] = function() require('rack').files() end,
+        ['<leader>rs'] = function() require('rack').status() end,
+        ['<leader>rp'] = function() require('rack').push() end,
+        ['<leader>rP'] = function() require('rack').pull() end,
+        ['<leader>rd'] = function() require('rack').domain() end,
+        ['<leader>rr'] = function() require('rack').reconstruct() end,
+        ['<leader>r?'] = function() require('rack').server_check() end,
+        ['<leader>ri'] = function() require('rack').init_project() end,
+      },
+    })
+  end,
+}
+```
+
+## Configuration
+
+All fields are optional. These are the defaults:
+
+```lua
+require('rack').setup({
+  -- Path to the rack binary
+  rack_cmd = 'rack',
+
+  -- Available flags shown in the flag picker when doing a named commit
+  flags = { 'Normal', 'Hotfix', 'Knot' },
+
+  -- Auto-push: commit + push on a timer in the background
+  auto_push = {
+    enabled          = false,
+    interval         = 600,    -- seconds (default: 10 min)
+    only_if_changed  = true,   -- skip if HEAD hasn't moved since last push
+    silent           = true,   -- suppress notifications on each auto-push
+  },
+
+  -- Optional keymap table: { ['<key>'] = function() ... end }
+  keymaps = nil,
+
+  -- Floating window appearance
+  ui = {
+    width         = 0.8,       -- fraction of editor width
+    height        = 0.8,       -- fraction of editor height
+    border        = 'rounded', -- 'rounded' | 'single' | 'double' | 'none'
+    preview_ratio = 0.6,       -- preview panel takes 60% of total width
+  },
+
+  -- Show vim.notify messages for actions
+  notify = true,
+})
+```
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `:RackCommit` | Commit current files (quick, no name) |
+| `:RackCommitNamed` | Prompt for name → flag picker → commit |
+| `:RackPush [project]` | Push to server |
+| `:RackPull [project]` | Pull from server |
+| `:RackLog [project]` | Open plate history picker |
+| `:RackFiles [project]` | Open files picker for latest plate |
+| `:RackProjects` | Open project list picker |
+| `:RackStatus` | Show local vs server diff in a float |
+| `:RackDomain` | Prompt for server URL and save it |
+| `:RackInitProject` | Prompt for project name, init/activate it |
+| `:RackDeleteProject [name]` | Delete project from server (confirm dialog) |
+| `:RackReconstruct` | Rebuild files from local HEAD (confirm dialog) |
+| `:RackServerCheck` | Ping server and notify online/offline |
+| `:RackAutoPushToggle` | Toggle the auto-push timer on/off |
+
+## Pickers
+
+All pickers share the same controls:
+
+| Key | Action |
+|---|---|
+| Type anything | Fuzzy-filter results |
+| `<C-n>` / `<C-p>` | Move selection down / up |
+| `<CR>` | Confirm selection |
+| `<Esc>` | Close picker |
+
+### Plate Log (`:RackLog`)
+
+Shows the full plate chain, HEAD first.
+
+```
+┌─ Plate Log ───────────────────────┐  ┌─ Preview ─────────────────────────┐
+│ > query_                          │  │ ID:     a3f8c1d92b04               │
+├───────────────────────────────────┤  │ Flag:   Hotfix                     │
+│ > a3f8c1d92b04  Hotfix  fix auth  │  │ Name:   fix auth token check       │
+│   91b2d477cc1e  Normal  add tests │  │ Files:  12                         │
+│   ...                             │  │         <- HEAD                    │
+└───────────────────────────────────┘  │                                    │
+                                       │   src/auth.cpp                     │
+                                       │   src/token.h                      │
+                                       │   ...                              │
+                                       └───────────────────────────────────┘
+```
+
+Extra key in this picker:
+
+| Key | Action |
+|---|---|
+| `<CR>` | Restore selected plate (confirm dialog) |
+| `<C-r>` | Restore selected plate immediately (no confirm) |
+
+The preview shows plate metadata. For the HEAD plate it also lists all files.
+
+### Files (`:RackFiles`)
+
+Lists every file in the latest server plate. Preview shows the file contents from disk with syntax highlighting. `<CR>` opens the file in whichever window was active before you opened the picker.
+
+### Projects (`:RackProjects`)
+
+Lists all projects on the server. The active project is marked `<- active`.
+
+| Key | Action |
+|---|---|
+| `<CR>` | Switch to selected project (`rack init <name>`) |
+| `<C-d>` | Delete selected project (confirm dialog) |
+
+## Statusline integration
+
+`require('rack').server_status()` returns `true` if the server is reachable. This is a synchronous call — use it only in statuslines that are already polling:
+
+```lua
+-- lualine example
+{
+  function()
+    return require('rack').server_status() and '● rack' or '○ rack'
+  end,
+  color = function()
+    return { fg = require('rack').server_status() and '#a6e3a1' or '#f38ba8' }
+  end,
+}
+```
+
+## Auto-push
+
+When enabled, a `vim.uv` timer wakes every `interval` seconds and:
+
+1. Reads the current local HEAD hash.
+2. If `only_if_changed = true` and HEAD hasn't moved since the last push, skips.
+3. Runs `rack commit` then `rack push`.
+
+Toggle at runtime with `:RackAutoPushToggle` or `require('rack').auto_push_toggle()`.
+
+## Highlight groups
+
+Override these in your colorscheme or `init.lua` to theme the floating windows:
+
+| Group | Default link | Used for |
+|---|---|---|
+| `RackNormal` | `NormalFloat` | Window background |
+| `RackBorder` | `FloatBorder` | Window borders |
+| `RackSelection` | `Visual` | Selected item in results |
+
+```lua
+-- Example overrides
+vim.api.nvim_set_hl(0, 'RackBorder',    { fg = '#89b4fa' })
+vim.api.nvim_set_hl(0, 'RackSelection', { bg = '#313244', bold = true })
+```
+
+## Notes
+
+- **`rack delete-project`** reads `y/N` from stdin interactively. The plugin feeds `y\n` automatically when you confirm via the dialog. If you later add a `--yes` flag to the CLI, remove the `stdin = 'y\n'` from `actions.lua`.
+- **File preview for old plates** is not available because `rack files` only shows the latest plate. A `rack files <plate-id>` command on the CLI side would unlock this.
+- **`rack log` / `rack files` / `rack projects`** output is plain text. Adding `--json` to the CLI would make parsing more robust.
+- All async CLI calls use `vim.system` and schedule results back onto the main loop, so no blocking.
