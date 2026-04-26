@@ -37,6 +37,10 @@ cmd('RackDiff', function(a)
   rack().diff(parts[1] ~= '' and parts[1] or nil, parts[2] or nil)
 end, { nargs = '*', desc = 'Rack: diff [plateA [plateB]]' })
 
+cmd('RackDiffPicker', function(a)
+  rack().diff_pick(a.args ~= '' and a.args or nil)
+end, { nargs = '?', desc = 'Rack: interactive plate diff picker' })
+
 cmd('RackDeleteProject', function(a)
   rack().delete_project(a.args ~= '' and a.args or nil)
 end, { nargs = '?', desc = 'Rack: delete project [name]' })
