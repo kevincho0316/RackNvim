@@ -9,9 +9,13 @@ function M.setup(user_cfg)
   vim.api.nvim_set_hl(0, 'RackBorder',    { link = 'FloatBorder', default = true })
   vim.api.nvim_set_hl(0, 'RackSelection', { link = 'Visual',      default = true })
   -- Plate log colours
-  vim.api.nvim_set_hl(0, 'RackFlagHotfix', { fg = '#f38ba8', default = true })  -- red
-  vim.api.nvim_set_hl(0, 'RackFlagKnot',   { fg = '#cba6f7', default = true })  -- purple
-  vim.api.nvim_set_hl(0, 'RackNamed',      { fg = '#f9e2af', default = true })  -- yellow
+  vim.api.nvim_set_hl(0, 'RackFlagHotfix', { fg = '#f38ba8', default = true })
+  vim.api.nvim_set_hl(0, 'RackFlagKnot',   { fg = '#cba6f7', default = true })
+  vim.api.nvim_set_hl(0, 'RackNamed',      { fg = '#f9e2af', default = true })
+  -- Diff picker file-list colours (link to standard diff groups)
+  vim.api.nvim_set_hl(0, 'RackDiffAdded',    { link = 'DiffAdd',    default = true })
+  vim.api.nvim_set_hl(0, 'RackDiffRemoved',  { link = 'DiffDelete', default = true })
+  vim.api.nvim_set_hl(0, 'RackDiffModified', { link = 'DiffChange', default = true })
 
   local cfg = config.get()
 
@@ -45,6 +49,7 @@ function M.files(proj)          require('rack.pickers.files').open(proj) end
 function M.projects()           require('rack.pickers.projects').open() end
 function M.auto_push_toggle()   require('rack.auto').toggle() end
 function M.diff(plateA, plateB) require('rack.actions').diff_float(plateA, plateB) end
+function M.diff_pick(proj)     require('rack.pickers.diff').open(proj) end
 
 -- Returns true if server is reachable; safe to call from statusline
 function M.server_status()

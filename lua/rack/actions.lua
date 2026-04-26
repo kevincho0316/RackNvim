@@ -201,54 +201,25 @@ end
 --   diff(id)          → local HEAD vs plate id
 --   diff(idA, idB)    → plate A vs plate B
 
+-- CLI arg convention (after main.cpp fix):
+--   diff()         → rack diff           (local vs server:HEAD)
+--   diff(X)        → rack diff <X>       (local vs plate X)
+--   diff(A, B)     → rack diff <A> <B>   (plate A vs plate B)
 function M.diff_float(plateA, plateB)
   local args = { 'diff' }
   if plateA and plateA ~= '' then table.insert(args, plateA) end
   if plateB and plateB ~= '' then table.insert(args, plateB) end
 
   cli().run(args, function(out, e, code)
-    local text = (out ~= '' and out or e)
-    if code ~= 0 and text:find('Server offline') then
-      err('Server offline'); return
-    end
-
-    local lines = vim.split(text, '\n', { plain = true })
-    -- trim trailing blank lines
-    while #lines > 0 and lines[#lines]:match('^%s*$') do
-      table.remove(lines)
-    end
-
-    local float_ui = require('rack.ui.float')
-    local cols = vim.o.columns
-    local rows = vim.o.lines
-    local w    = math.floor(cols * 0.9)
-    local h    = math.min(math.floor(rows * 0.85), math.max(4, #lines))
-    local row  = math.floor((rows - h - 2) / 2)
-    local col  = math.floor((cols - w) / 2)
-
-    local title = 'diff ' .. (plateA or 'local') ..
-                  ' → ' .. (plateB or (plateA and 'server:HEAD' or 'server:HEAD'))
-
-    local f = float_ui.open({
-      title    = title,
-      width    = w, height = h,
-      row      = row, col = col,
-      border   = cfg().ui.border,
-      win_opts = { winhighlight = 'Normal:RackNormal,FloatBorder:RackBorder', wrap = false },
-    })
-
-    vim.api.nvim_set_option_value('modifiable', true, { buf = f.buf })
-    vim.api.nvim_buf_set_lines(f.buf, 0, -1, false, lines)
-    vim.api.nvim_set_option_value('filetype', 'diff', { buf = f.buf })
-    vim.api.nvim_set_option_value('modifiable', false, { buf = f.buf })
-
-    local function close()
-      if vim.api.nvim_win_is_valid(f.win) then
-        pcall(vim.api.nvim_win_close, f.win, true)
-      end
-    end
-    vim.keymap.set('n', 'q',     close, { buffer = f.buf, nowait = true, silent = true })
-    vim.keymap.set('n', '<Esc>', close, { buffer = f.buf, nowait = true, silent = true })
+    local text = out ~= '' and out or e
+    if code ~= 0 and text:find('Server offline') then err('Server offline'); return end
+    local parse = require('rack.parse')
+    local diff  = require('rack.pickers.diff')
+    -- label_a: local when no plateA given (single-arg = local vs plateA)
+    local label_a = (plateA and plateA ~= '' and plateB and plateB ~= '') and plateA:sub(1,12) or 'local'
+    local label_b = plateB and plateB ~= '' and plateB:sub(1,12)
+                    or (plateA and plateA ~= '' and plateA:sub(1,12) or 'server:HEAD')
+    diff.show(parse.diff(text), label_a, label_b)
   end)
 end
 

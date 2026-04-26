@@ -87,4 +87,47 @@ function M.status(output)
   return result
 end
 
+-- rack diff output:
+--   diff <labelA> → <labelB>
+--   (blank line)
+--   --- a/path   OR   --- /dev/null
+--   +++ b/path   OR   +++ /dev/null
+--   @@ ... @@
+--   -old line
+--   +new line
+--    context
+--   (repeats per file)
+--   N added, N removed, N modified   OR   No differences
+function M.diff(output)
+  local result = { title = '', files = {}, summary = '' }
+  local current = nil
+
+  for line in output:gmatch('[^\n]+') do
+    if line:match('^diff ') then
+      result.title = line
+    elseif line:match('^%-%-%- ') then
+      if current then table.insert(result.files, current) end
+      current = { path_a = line:match('^%-%-%- (.+)$'), path_b = '', path = '', kind = 'modified', lines = { line } }
+    elseif line:match('^%+%+%+ ') and current then
+      local pb = line:match('^%+%+%+ (.+)$')
+      current.path_b = pb
+      if current.path_a == '/dev/null' then
+        current.kind = 'added';   current.path = pb:gsub('^b/', '')
+      elseif pb == '/dev/null' then
+        current.kind = 'removed'; current.path = current.path_a:gsub('^a/', '')
+      else
+        current.kind = 'modified'; current.path = pb:gsub('^b/', '')
+      end
+      table.insert(current.lines, line)
+    elseif line:match('^%d+ added,') or line == 'No differences' then
+      result.summary = line
+    elseif current then
+      table.insert(current.lines, line)
+    end
+  end
+  if current then table.insert(result.files, current) end
+
+  return result
+end
+
 return M

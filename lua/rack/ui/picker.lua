@@ -197,8 +197,19 @@ function M.open(opts)
     vim.keymap.set(modes, key, fn, { buffer = prompt_f.buf, nowait = true, silent = true })
   end
 
-  map({ 'i', 'n' }, '<C-n>', function() move_sel(1) end)
-  map({ 'i', 'n' }, '<C-p>', function() move_sel(-1) end)
+  map({ 'i', 'n' }, '<C-n>',  function() move_sel(1) end)
+  map({ 'i', 'n' }, '<C-p>',  function() move_sel(-1) end)
+  map({ 'i', 'n' }, '<Down>', function() move_sel(1) end)
+  map({ 'i', 'n' }, '<Up>',   function() move_sel(-1) end)
+
+  local function scroll_preview(cmd)
+    if preview_f and vim.api.nvim_win_is_valid(preview_f.win) then
+      vim.api.nvim_win_call(preview_f.win, function() vim.cmd('normal! ' .. cmd) end)
+    end
+  end
+  map({ 'i', 'n' }, '<Right>', function() scroll_preview('zl') end)
+  map({ 'i', 'n' }, '<Left>',  function() scroll_preview('zh') end)
+
   map({ 'i', 'n' }, '<Esc>', cleanup)
 
   map({ 'i', 'n' }, '<CR>', function()

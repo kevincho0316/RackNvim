@@ -6,7 +6,7 @@ Neovim plugin for [Rack](../Rack/README.md) — a git-like version control syste
 
 - Telescope-style 3-pane picker (prompt / results / preview) built from scratch with `nvim_open_win`
 - Plate history browser with timestamps, restore, and diff
-- Unified diff viewer with syntax highlighting
+- Interactive diff picker — choose any two plates, browse changed files, view per-file diffs with `DiffAdd`/`DiffDelete` highlighting
 - File browser with live preview
 - Project switcher
 - Floating commit, push, pull, status, domain, reconstruct
@@ -45,6 +45,7 @@ With keymaps:
         ['<leader>rP'] = function() require('rack').pull() end,
         ['<leader>rd'] = function() require('rack').domain() end,
         ['<leader>rD'] = function() require('rack').diff() end,
+        ['<leader>rx'] = function() require('rack').diff_pick() end,
         ['<leader>rr'] = function() require('rack').reconstruct() end,
         ['<leader>ri'] = function() require('rack').init_project() end,
         ['<leader>r?'] = function() require('rack').server_check() end,
@@ -102,9 +103,10 @@ require('rack').setup({
 | `:RackFiles [project]` | Open files picker for latest plate |
 | `:RackProjects` | Open project list picker |
 | `:RackStatus` | Show local vs server diff in a float |
-| `:RackDiff` | Diff local HEAD vs server HEAD |
-| `:RackDiff <plate>` | Diff local HEAD vs a specific plate (short hash ok) |
-| `:RackDiff <plateA> <plateB>` | Diff two server plates against each other |
+| `:RackDiff` | Diff local HEAD vs server HEAD (file picker) |
+| `:RackDiff <plate>` | Diff plate vs server HEAD (short hash ok) |
+| `:RackDiff <plateA> <plateB>` | Diff two server plates |
+| `:RackDiffPicker` | Interactive two-step plate selector → diff |
 | `:RackDomain` | Prompt for server URL and save it |
 | `:RackInitProject` | Prompt for project name, init/activate it |
 | `:RackDeleteProject [name]` | Delete project from server (confirm dialog) |
@@ -152,34 +154,36 @@ Extra keys in this picker:
 
 The preview shows plate metadata (ID, flag, name, file count, timestamp). For the HEAD plate it also lists all files.
 
-### Diff float (`:RackDiff`, `<C-d>` in log)
+### Diff picker (`:RackDiff`, `:RackDiffPicker`, `<C-d>` in log)
 
-Opens a scrollable floating window with unified diff output. Neovim's built-in `diff` filetype highlights `+`/`-` lines automatically.
+All diff paths lead to the same 3-pane file picker. Changed files are listed and colour-coded; preview shows the unified diff for the selected file; `<CR>` opens a focused full-screen diff float for that file.
 
 ```
-┌─ diff local → server:HEAD ───────────────────────────────────────────┐
-│ diff local → server:HEAD                                             │
-│                                                                      │
-│ --- a/src/auth.cpp                                                   │
-│
-│ @@ ... @@                                                            │
-│ -    if (token.expiry < now) return false;                           │
-│ +    if (token.expiry <= now) return false;                          │
-│      ...                                                             │
-│                                                                      │
-│ 0 added, 0 removed, 1 modified                                       │
-└──────────────────────────────────────────────────────────────────────┘
+┌─ diff  a3f8c1  →  91b2d4  (1 added, 0 removed, 2 modified) ─┐  ┌─ Preview ──────────────────────┐
+│ > filter_                                                    │  │ --- a/src/auth.cpp             │
+├──────────────────────────────────────────────────────────────┤  │ +++ b/src/auth.cpp             │
+│ > [~]  src/auth.cpp                                          │  │ @@ ... @@                      │
+│   [~]  src/token.h                                           │  │ -if (expiry < now)             │
+│   [+]  src/logger.cpp                                        │  │ +if (expiry <= now)            │
+└──────────────────────────────────────────────────────────────┘  └────────────────────────────────┘
 ```
 
-`q` or `<Esc>` closes. `j`/`k` scrolls. Three diff modes:
+Row colours: `[+]` added → `DiffAdd`, `[-]` removed → `DiffDelete`, `[~]` modified → `DiffChange`. Preview and focused float use the same `DiffAdd`/`DiffDelete`/`Comment` extmarks for line highlighting.
 
+**`:RackDiff [plateA [plateB]]`** — quick diff, no plate selection step:
 ```vim
-:RackDiff                    " local HEAD  vs  server HEAD
-:RackDiff a3f8c1             " local HEAD  vs  plate a3f8c1
+:RackDiff                    " local  vs  server HEAD
+:RackDiff a3f8c1             " plate a3f8c1  vs  server HEAD
 :RackDiff a3f8c1 91b2d4      " plate a3f8c1  vs  plate 91b2d4
 ```
 
-Short plate hashes are resolved automatically.
+**`:RackDiffPicker`** — interactive two-step plate selector:
+
+1. Picker shows full plate log + `local HEAD` special entry → pick **plate A**
+2. Picker shows plate log (excluding A) + `server HEAD` special entry → pick **plate B**
+3. Diff file picker opens with results
+
+`<C-d>` inside `:RackLog` runs `rack diff <plate>` directly (selected plate vs local HEAD).
 
 ### Files (`:RackFiles`)
 
@@ -232,6 +236,9 @@ Override in your colorscheme or `init.lua`:
 | `RackFlagHotfix` | `#f38ba8` (red) | Log row with `Hotfix` flag |
 | `RackFlagKnot` | `#cba6f7` (purple) | Log row with `Knot` flag |
 | `RackNamed` | `#f9e2af` (yellow) | Log row with a name but `Normal` flag |
+| `RackDiffAdded` | `DiffAdd` | Diff picker row — added file |
+| `RackDiffRemoved` | `DiffDelete` | Diff picker row — removed file |
+| `RackDiffModified` | `DiffChange` | Diff picker row — modified file |
 
 ```lua
 vim.api.nvim_set_hl(0, 'RackBorder',    { fg = '#89b4fa' })
