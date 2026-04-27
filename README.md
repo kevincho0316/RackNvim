@@ -8,8 +8,12 @@ Neovim plugin for [Rack](../Rack/README.md) — a git-like version control syste
 - Plate history browser with timestamps, restore, and diff
 - Interactive diff picker — choose any two plates, browse changed files, view per-file diffs with `DiffAdd`/`DiffDelete` highlighting
 - File browser with live preview
-- Project switcher
-- Floating commit, push, pull, status, domain, reconstruct
+- Project switcher with delete support
+- Floating commit (quick and named), push, pull, status, domain, reconstruct
+- Named commit uses a minimal arrow-key flag selector (`j/k/↑/↓`) instead of the full search picker
+- Progress notification shown while commit + push is running
+- API key auth support — set once with `:RackAuth`, sent automatically on every request
+- Fresh device checkout — `:RackCheckout` sets domain, activates project, and pulls files in one step
 - Auto-push timer via `vim.uv`
 
 ## Requirements
@@ -64,7 +68,7 @@ require('rack').setup({
   -- Path to the rack binary
   rack_cmd = 'rack',
 
-  -- Available flags shown in the flag picker when doing a named commit
+  -- Available flags shown in the flag selector when doing a named commit
   flags = { 'Normal', 'Hotfix', 'Knot' },
 
   -- Auto-push: commit + push on a timer in the background
@@ -96,7 +100,7 @@ require('rack').setup({
 | Command | Description |
 |---|---|
 | `:RackCommit` | Commit current files (quick, no name) |
-| `:RackCommitNamed` | Prompt for name → flag picker → commit |
+| `:RackCommitNamed` | Prompt for name → flag selector → commit |
 | `:RackPush [project]` | Push to server |
 | `:RackPull [project]` | Pull from server |
 | `:RackLog [project]` | Open plate history picker |
@@ -108,22 +112,60 @@ require('rack').setup({
 | `:RackDiff <plateA> <plateB>` | Diff two server plates |
 | `:RackDiffPicker` | Interactive two-step plate selector → diff |
 | `:RackDomain` | Prompt for server URL and save it |
+| `:RackAuth` | Prompt for API key and save it to `~/.rack/config` |
+| `:RackCheckout` | Prompt for URL + project, then pull everything (fresh device) |
 | `:RackInitProject` | Prompt for project name, init/activate it |
 | `:RackDeleteProject [name]` | Delete project from server (confirm dialog) |
 | `:RackReconstruct` | Rebuild files from local HEAD (confirm dialog) |
 | `:RackServerCheck` | Ping server and notify online/offline |
 | `:RackAutoPushToggle` | Toggle the auto-push timer on/off |
 
+## Authentication
+
+If your server runs with `RACK_API_KEY` set, configure the client once:
+
+```vim
+:RackAuth
+```
+
+Enter the key at the prompt. It is saved to `~/.rack/config` (home directory, outside any repository) and sent automatically with every request. The key is never written inside a project directory and will not appear in git history.
+
+## Fresh Device Setup
+
+On a new machine with no local state:
+
+```vim
+:RackAuth       " enter your API key
+:RackCheckout   " enter server URL, then project name
+```
+
+This sets the domain, activates the project on the server, and pulls all files in one operation. Equivalent CLI:
+
+```sh
+rack auth <key>
+rack checkout http://yourserver.com:8080 myproject
+```
+
+## Named Commit Flow
+
+`:RackCommitNamed` uses a two-step UI:
+
+1. **Name prompt** — floating single-line input, `<CR>` to confirm, `<Esc>` to cancel
+2. **Flag selector** — minimal vertical menu, navigate with `j/k` or `↑/↓`, confirm with `<CR>`
+
+A `Committing...` notification appears immediately so you know the operation is running. On completion the notification shows the pushed plate ID (e.g. `[Hotfix] fix auth → pushed a3f8c1d92b04`).
+
 ## Pickers
 
-All pickers share the same controls:
+All search pickers share the same controls:
 
 | Key | Action |
 |---|---|
 | Type anything | Fuzzy-filter results |
-| `<C-n>` / `<C-p>` | Move selection down / up |
+| `<C-n>` / `<C-p>` or `↓` / `↑` | Move selection |
 | `<CR>` | Confirm selection |
 | `<Esc>` | Close picker |
+| `←` / `→` | Scroll preview horizontally |
 
 ### Plate Log (`:RackLog`)
 
@@ -232,7 +274,7 @@ Override in your colorscheme or `init.lua`:
 |---|---|---|
 | `RackNormal` | `NormalFloat` | Window background |
 | `RackBorder` | `FloatBorder` | Window borders |
-| `RackSelection` | `Visual` | Selected row in results |
+| `RackSelection` | `Visual` | Selected row in results and flag selector |
 | `RackFlagHotfix` | `#f38ba8` (red) | Log row with `Hotfix` flag |
 | `RackFlagKnot` | `#cba6f7` (purple) | Log row with `Knot` flag |
 | `RackNamed` | `#f9e2af` (yellow) | Log row with a name but `Normal` flag |
@@ -250,3 +292,4 @@ vim.api.nvim_set_hl(0, 'RackSelection', { bg = '#313244', bold = true })
 - **File preview for old plates** is not available because `rack files` only shows the latest plate. A `rack files <plate-id>` CLI command would unlock this.
 - **`rack log` / `rack files` / `rack projects`** output is plain text. Adding `--json` to the CLI would make parsing more robust.
 - All async CLI calls use `vim.system` and schedule results onto the main loop — no blocking.
+- `server_status()` (`cli.run_sync`) is the only synchronous call; it is intentional and used only for statusline polling.
