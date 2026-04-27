@@ -18,10 +18,16 @@ end
 -- ── commit ───────────────────────────────────────────────────────────────
 
 function M.commit_quick()
+  notify('Committing...')
   cli().run({ 'commit' }, function(out, e, code)
     if code ~= 0 then err('Commit failed: ' .. result_text(out, e)); return end
-    local hash = out:match('Local commit:%s*(%S+)') or result_text(out, e)
-    notify('Committed: ' .. hash)
+    local hash   = out:match('Local commit:%s*(%S+)') or ''
+    local pushed = out:match('Pushed plate:%s*(%S+)')
+    if pushed then
+      notify('Committed + pushed: ' .. pushed:sub(1, 12))
+    else
+      notify('Committed: ' .. (hash ~= '' and hash:sub(1, 12) or result_text(out, e)))
+    end
   end)
 end
 
@@ -29,17 +35,23 @@ function M.commit_named()
   require('rack.ui.prompt').input({
     title = 'Commit name',
     on_confirm = function(name)
-      require('rack.ui.picker').open({
+      require('rack.ui.select').open({
         title     = 'Select flag',
         items     = cfg().flags,
         format    = function(f) return f end,
         on_select = function(flag)
           local args = { 'commit', '-f', flag }
           if name ~= '' then vim.list_extend(args, { '-n', name }) end
+          notify('Committing...')
           cli().run(args, function(out, e, code)
             if code ~= 0 then err('Commit failed: ' .. result_text(out, e)); return end
-            local hash = out:match('Local commit:%s*(%S+)') or result_text(out, e)
-            notify(('Committed [%s] %s: %s'):format(flag, name, hash))
+            local hash   = out:match('Local commit:%s*(%S+)') or ''
+            local pushed = out:match('Pushed plate:%s*(%S+)')
+            if pushed then
+              notify(('[%s] %s → pushed %s'):format(flag, name ~= '' and name or '–', pushed:sub(1, 12)))
+            else
+              notify(('Committed [%s] %s: %s'):format(flag, name, hash:sub(1, 12)))
+            end
           end)
         end,
       })
@@ -221,6 +233,44 @@ function M.diff_float(plateA, plateB)
                     or (plateA and plateA ~= '' and plateA:sub(1,12) or 'server:HEAD')
     diff.show(parse.diff(text), label_a, label_b)
   end)
+end
+
+-- ── auth key ─────────────────────────────────────────────────────────────
+
+function M.set_api_key()
+  require('rack.ui.prompt').input({
+    title = 'API Key',
+    on_confirm = function(key)
+      if key == '' then return end
+      cli().run({ 'auth', key }, function(out, e, code)
+        if code ~= 0 then err('Failed: ' .. result_text(out, e)); return end
+        notify('API key saved')
+      end)
+    end,
+  })
+end
+
+-- ── checkout (fresh device setup) ────────────────────────────────────────
+
+function M.checkout()
+  require('rack.ui.prompt').input({
+    title = 'Server URL',
+    on_confirm = function(domain)
+      if domain == '' then return end
+      require('rack.ui.prompt').input({
+        title = 'Project name',
+        on_confirm = function(project)
+          if project == '' then return end
+          notify('Checking out ' .. project .. '...')
+          cli().run({ 'checkout', domain, project }, function(out, e, code)
+            if code ~= 0 then err('Checkout failed: ' .. result_text(out, e)); return end
+            notify('Checked out: ' .. project)
+            vim.cmd('checktime')
+          end)
+        end,
+      })
+    end,
+  })
 end
 
 -- ── init project ─────────────────────────────────────────────────────────

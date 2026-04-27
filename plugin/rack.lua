@@ -30,6 +30,8 @@ cmd('RackDomain',       function()    rack().domain()         end, { desc = 'Rac
 cmd('RackReconstruct',  function()    rack().reconstruct()    end, { desc = 'Rack: rebuild files from local HEAD' })
 cmd('RackServerCheck',  function()    rack().server_check()   end, { desc = 'Rack: ping server' })
 cmd('RackInitProject',  function()    rack().init_project()   end, { desc = 'Rack: init/activate project' })
+cmd('RackCheckout',     function()    rack().checkout()        end, { desc = 'Rack: checkout project on fresh device' })
+cmd('RackAuth',         function()    rack().set_api_key()     end, { desc = 'Rack: set API key for server auth' })
 cmd('RackAutoPushToggle', function()  rack().auto_push_toggle() end, { desc = 'Rack: toggle auto-push' })
 
 cmd('RackDiff', function(a)

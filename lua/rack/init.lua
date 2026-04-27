@@ -44,6 +44,8 @@ function M.server_check()       require('rack.actions').server_check() end
 function M.delete_project(proj) require('rack.actions').delete_project(proj) end
 function M.status()             require('rack.actions').status_float() end
 function M.init_project()       require('rack.actions').init_project() end
+function M.checkout()           require('rack.actions').checkout() end
+function M.set_api_key()        require('rack.actions').set_api_key() end
 function M.log(proj)            require('rack.pickers.log').open(proj) end
 function M.files(proj)          require('rack.pickers.files').open(proj) end
 function M.projects()           require('rack.pickers.projects').open() end
